@@ -63,10 +63,19 @@ enum Token {
 #[derive(Debug, Clone)]
 pub struct Report {
     pub metadata: Metadata,
+    // Days should be sorted by date
     pub days: Vec<Day>,
 }
 
 impl Report {
+    pub fn first_date(&self) -> Date {
+        self.days.first().unwrap().date
+    }
+
+    pub fn last_date(&self) -> Date {
+        self.days.last().unwrap().date
+    }
+
     pub fn range<T>(&self, retrieve: fn(&Day) -> T, compare: fn(&T, &T) -> Ordering) -> Range<T> {
         self.days.iter().map(retrieve).min_by(compare).unwrap()
             ..self.days.iter().map(retrieve).max_by(compare).unwrap()
@@ -84,6 +93,24 @@ impl Report {
                 .map(|day| day.high_temp)
                 .max_by(|left, right| left.total_cmp(right))
                 .unwrap()
+    }
+
+    /// Can only merge reports from the exact same header
+    /// Except the date which **must** change or it'll return an error.
+    pub fn merge(&mut self, mut other: Self) -> Result<(), String> {
+        if self.metadata != other.metadata {
+            return Err(String::from("Metada differs"));
+        }
+
+        if self.metadata.date < other.metadata.date {
+            self.days.append(&mut other.days);
+        } else {
+            self.metadata.date = other.metadata.date;
+            other.days.append(&mut self.days);
+            self.days = other.days;
+        }
+
+        Ok(())
     }
 }
 
@@ -127,6 +154,8 @@ impl FromStr for Report {
 
 #[derive(Debug, Clone)]
 pub struct Metadata {
+    // Date of the beginning of the month, doesn't take into account the fact
+    // that days may be missing. Do not rely on it
     pub date: Date,
 
     pub name: String,
@@ -136,6 +165,17 @@ pub struct Metadata {
     pub elevation: usize,
     pub lat: (u8, u8, u8),
     pub long: (u8, u8, u8),
+}
+
+impl PartialEq for Metadata {
+    fn eq(&self, other: &Self) -> bool {
+        self.name.eq(&other.name)
+            && self.city.eq(&other.city)
+            && self.state.eq(&other.state)
+            && self.elevation.eq(&other.elevation)
+            && self.lat.eq(&other.lat)
+            && self.long.eq(&other.long)
+    }
 }
 
 #[derive(Debug, Error)]
