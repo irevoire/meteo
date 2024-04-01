@@ -7,7 +7,6 @@ fn main() {
     let inputs = std::env::args().skip(1);
     let mut report: Option<Report> = None;
     for input in inputs {
-        println!("Parsing {input}");
         let input = std::fs::read_to_string(input).unwrap();
 
         let r = match Report::from_str(&input) {

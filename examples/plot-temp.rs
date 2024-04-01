@@ -7,19 +7,21 @@ fn main() {
     let inputs = std::env::args().skip(1);
     let mut report: Option<Report> = None;
     for input in inputs {
-        println!("Parsing {input}");
-        let input = std::fs::read_to_string(input).unwrap();
+        let r = std::fs::read_to_string(&input).unwrap();
 
-        let r = match Report::from_str(&input) {
+        let r = match Report::from_str(&r) {
             Ok(r) => r,
-            Err(_) => continue,
+            Err(e) => {
+                eprintln!("Error while parsing report {input}:\n{e}");
+                continue;
+            }
         };
         match report {
             Some(ref mut report) => report.merge(r).unwrap(),
             None => report = Some(r),
         };
     }
-    let report = report.unwrap();
+    let report = report.expect("No valid reports inputted");
     let output = format!("0.png");
 
     let first_date = report.first_date();

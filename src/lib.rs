@@ -13,7 +13,7 @@ enum Token {
     // Month
     #[token("JAN")]
     January,
-    #[token("FEB")]
+    #[regex("FE(B|V)", priority = 3)]
     February,
     #[token("MAR")]
     March,
@@ -54,6 +54,10 @@ enum Token {
     #[token("LONG:")]
     Longitude,
 
+    #[token("\n")]
+    Crlf,
+    #[token("---")]
+    MissingData,
     #[token(":")]
     Colon,
     #[token(".")]
@@ -137,7 +141,7 @@ impl FromStr for Report {
             }
         }
 
-        let mut days = Vec::new();
+        let mut days: Vec<Day> = Vec::new();
 
         // Parse all days until the next big bar
         loop {
@@ -145,7 +149,19 @@ impl FromStr for Report {
             if line.chars().all(|c| c == '-') {
                 break;
             }
-            days.push(Day::parse(metadata.date, line)?);
+
+            let day = match Day::parse(metadata.date, line) {
+                Ok(day) => day,
+                Err(ParseDayError::EmptyDay) => continue,
+                Err(e) => return Err(e.into()),
+            };
+
+            if let Some(d) = days.last() {
+                if d.date >= day.date {
+                    eprintln!("days are not ordered");
+                }
+            }
+            days.push(day);
         }
 
         Ok(Self { metadata, days })
@@ -184,8 +200,8 @@ pub enum MetadataError {
     MissingTitle,
     #[error("Bad title")]
     BadTitle,
-    #[error("Bad month")]
-    BadMonth,
+    #[error("Bad month: {0}")]
+    BadMonth(String),
     #[error("Bad header")]
     BadHeader,
 }
@@ -211,17 +227,25 @@ impl Metadata {
             Some(Ok(Token::October)) => Month::October,
             Some(Ok(Token::November)) => Month::November,
             Some(Ok(Token::December)) => Month::December,
-            _ => return Err(MetadataError::BadMonth),
+            _ => return Err(MetadataError::BadMonth(title.slice().to_string())),
         };
 
         match title.next() {
             Some(Ok(Token::Dot)) => (),
-            _ => return Err(MetadataError::BadMonth),
+            _ => {
+                return Err(MetadataError::BadMonth(String::from(
+                    "Missing dot after month",
+                )))
+            }
         };
 
         let year = match title.next() {
             Some(Ok(Token::Number)) => title.slice().parse().unwrap(),
-            _ => return Err(MetadataError::BadMonth),
+            _ => {
+                return Err(MetadataError::BadMonth(String::from(
+                    "Missing year after month",
+                )))
+            }
         };
 
         let date = Date::from_calendar_date(year, month, 1).unwrap();
@@ -257,18 +281,20 @@ pub struct Day {
 
     pub avg_wind_speed: f32,
     pub high_wind_speed: f32,
-    pub high_wind_speed_date: PrimitiveDateTime,
-    pub wind_direction: Direction,
+    pub high_wind_speed_date: Option<PrimitiveDateTime>,
+    pub wind_direction: Option<Direction>,
 }
 
 #[derive(Debug, Error)]
 pub enum ParseDayError {
     #[error("Invalid day: {0}")]
     InvalidDay(#[from] time::error::ComponentRange),
+    #[error("Empty day")]
+    EmptyDay,
     #[error("Bad day")]
     BadDay,
-    #[error("Bad thing")]
-    BadThing,
+    #[error("Bad thing: {0}")]
+    BadThing(String),
 }
 
 impl Day {
@@ -283,96 +309,125 @@ impl Day {
 
         let mean_temp = match day.next() {
             Some(Ok(Token::Number)) => day.slice().parse().unwrap(),
-            _ => return Err(ParseDayError::BadThing),
+            Some(Ok(Token::Crlf)) => return Err(ParseDayError::EmptyDay),
+            None => return Err(ParseDayError::EmptyDay),
+            Some(Ok(token)) => {
+                return Err(ParseDayError::BadThing(format!(
+                    "Bad mean temp token: {:?}",
+                    token
+                )))
+            }
+            a => return Err(ParseDayError::BadThing(format!("Bad mean temp: {:?}", a))),
         };
 
         let high_temp = match day.next() {
             Some(Ok(Token::Number)) => day.slice().parse().unwrap(),
-            _ => return Err(ParseDayError::BadThing),
+            _ => return Err(ParseDayError::BadThing(String::from("Bad high temp"))),
         };
 
         let hour = match day.next() {
             Some(Ok(Token::Number)) => day.slice().parse().unwrap(),
-            _ => return Err(ParseDayError::BadThing),
+            _ => return Err(ParseDayError::BadThing(String::from("Bad high temp hour"))),
         };
         match day.next() {
             Some(Ok(Token::Colon)) => (),
-            _ => return Err(ParseDayError::BadThing),
+            _ => return Err(ParseDayError::BadThing(String::from("Bad high temp colon"))),
         };
         let minute = match day.next() {
             Some(Ok(Token::Number)) => day.slice().parse().unwrap(),
-            _ => return Err(ParseDayError::BadThing),
+            _ => {
+                return Err(ParseDayError::BadThing(String::from(
+                    "Bad high temp minute",
+                )))
+            }
         };
         let high_temp_date = date
             .with_hms(hour, minute, 0)
-            .map_err(|_| ParseDayError::BadThing)?;
+            .map_err(|e| ParseDayError::BadThing(e.to_string()))?;
 
         let low_temp = match day.next() {
             Some(Ok(Token::Number)) => day.slice().parse().unwrap(),
-            _ => return Err(ParseDayError::BadThing),
+            _ => return Err(ParseDayError::BadThing(String::from("Bad low temp"))),
         };
 
         let hour = match day.next() {
             Some(Ok(Token::Number)) => day.slice().parse().unwrap(),
-            _ => return Err(ParseDayError::BadThing),
+            _ => return Err(ParseDayError::BadThing(String::from("Bad low temp hour"))),
         };
         match day.next() {
             Some(Ok(Token::Colon)) => (),
-            _ => return Err(ParseDayError::BadThing),
+            _ => return Err(ParseDayError::BadThing(String::from("Bad low temp colon"))),
         };
         let minute = match day.next() {
             Some(Ok(Token::Number)) => day.slice().parse().unwrap(),
-            _ => return Err(ParseDayError::BadThing),
+            _ => return Err(ParseDayError::BadThing(String::from("Bad low temp minute"))),
         };
         let low_temp_date = date
             .with_hms(hour, minute, 0)
-            .map_err(|_| ParseDayError::BadThing)?;
+            .map_err(|e| ParseDayError::BadThing(e.to_string()))?;
 
         // skip the heat deg days and cool deg days
         match day.next() {
             Some(Ok(Token::Number)) => day.slice(),
-            _ => return Err(ParseDayError::BadThing),
+            _ => return Err(ParseDayError::BadThing(String::from("heat truc"))),
         };
         match day.next() {
             Some(Ok(Token::Number)) => day.slice(),
-            _ => return Err(ParseDayError::BadThing),
+            _ => return Err(ParseDayError::BadThing(String::from("heat truc"))),
         };
 
         let rain = match day.next() {
             Some(Ok(Token::Number)) => day.slice().parse().unwrap(),
-            _ => return Err(ParseDayError::BadThing),
+            _ => return Err(ParseDayError::BadThing(String::from("Bad rain"))),
         };
 
         let avg_wind_speed = match day.next() {
             Some(Ok(Token::Number)) => day.slice().parse().unwrap(),
-            _ => return Err(ParseDayError::BadThing),
+            _ => return Err(ParseDayError::BadThing(String::from("Bad avg wind speed"))),
         };
 
         let high_wind_speed = match day.next() {
             Some(Ok(Token::Number)) => day.slice().parse().unwrap(),
-            _ => return Err(ParseDayError::BadThing),
+            _ => return Err(ParseDayError::BadThing(String::from("Bad high wind speed"))),
         };
 
         // high_wind_speed_date
-        let hour = match day.next() {
-            Some(Ok(Token::Number)) => day.slice().parse().unwrap(),
-            _ => return Err(ParseDayError::BadThing),
+        let high_wind_speed_date = match day.next() {
+            Some(Ok(Token::Number)) => {
+                let hour = day.slice().parse().unwrap();
+                match day.next() {
+                    Some(Ok(Token::Colon)) => (),
+                    _ => {
+                        return Err(ParseDayError::BadThing(String::from(
+                            "Bad high wind speed colon",
+                        )))
+                    }
+                };
+                let minute = match day.next() {
+                    Some(Ok(Token::Number)) => day.slice().parse().unwrap(),
+                    _ => {
+                        return Err(ParseDayError::BadThing(String::from(
+                            "Bad high wind speed minute",
+                        )))
+                    }
+                };
+                let high_wind_speed_date = date
+                    .with_hms(hour, minute, 0)
+                    .map_err(|e| ParseDayError::BadThing(e.to_string()))?;
+                Some(high_wind_speed_date)
+            }
+            Some(Ok(Token::MissingData)) => None,
+            _ => {
+                return Err(ParseDayError::BadThing(String::from(
+                    "Bad high wind speed hour",
+                )))
+            }
         };
-        match day.next() {
-            Some(Ok(Token::Colon)) => (),
-            _ => return Err(ParseDayError::BadThing),
-        };
-        let minute = match day.next() {
-            Some(Ok(Token::Number)) => day.slice().parse().unwrap(),
-            _ => return Err(ParseDayError::BadThing),
-        };
-        let high_wind_speed_date = date
-            .with_hms(hour, minute, 0)
-            .map_err(|_| ParseDayError::BadThing)?;
 
         let wind_direction = match day.next() {
-            Some(Ok(Token::String)) => day.slice().parse().unwrap(),
-            _ => return Err(ParseDayError::BadThing),
+            Some(Ok(Token::String)) => Some(day.slice().parse().unwrap()),
+            Some(Ok(Token::MissingData)) => None,
+            _ => return Err(ParseDayError::BadThing(String::from("Wind direction"))),
         };
 
         Ok(Self {
