@@ -71,6 +71,26 @@ pub struct Report {
     pub days: Vec<Day>,
 }
 
+impl PartialEq for Report {
+    fn eq(&self, other: &Self) -> bool {
+        self.metadata.date == other.metadata.date
+    }
+}
+
+impl Eq for Report {}
+
+impl PartialOrd for Report {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.metadata.date.partial_cmp(&other.metadata.date)
+    }
+}
+
+impl Ord for Report {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.metadata.date.cmp(&other.metadata.date)
+    }
+}
+
 impl Report {
     pub fn first_date(&self) -> Date {
         self.days.first().unwrap().date
@@ -168,7 +188,7 @@ impl FromStr for Report {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct Metadata {
     // Date of the beginning of the month, doesn't take into account the fact
     // that days may be missing. Do not rely on it
