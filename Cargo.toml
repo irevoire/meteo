@@ -10,8 +10,8 @@ logos = "0.14.0"
 miette = { version = "7.2.0", features = ["fancy"] }
 thiserror = "1.0.58"
 time = "0.3.34"
-ureq = "2.9.6"
 
 [dev-dependencies]
 chrono = "0.4.37"
 plotters = "0.3.5"
+ureq = "2.9.7"
